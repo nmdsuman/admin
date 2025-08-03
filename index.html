@@ -1,38 +1,757 @@
-<!DOCTYPE html>
-<html lang="bn">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>আমার প্রথম ওয়েবসাইট</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f0f0f0;
-            color: #333;
-            text-align: center;
-            padding: 50px;
-        }
-        h1 {
-            color: #4CAF50;
-        }
-        p {
-            font-size: 18px;
-        }
-        img {
-            max-width: 100%;
-            height: auto;
-            border-radius: 10px;
-            margin-top: 20px;
-        }
-    </style>
-</head>
-<body>
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
+import { getFirestore, collection, doc, onSnapshot, updateDoc, addDoc, deleteDoc, setDoc, query, where } from 'firebase/firestore';
+import { LogIn, LogOut, Plus, Pencil, Trash2, CheckCircle, Circle, Bell } from 'lucide-react';
+import { getAnalytics } from "firebase/analytics";
 
-    <h1>হ্যালো, Vercel!</h1>
-    <p>এটি আমার প্রথম লাইভ ওয়েবসাইট। Vercel-এর মাধ্যমে GitHub থেকে এটি ডিপ্লয় করা হয়েছে।</p>
-    <p>আমি এখন এটি এডিট করে দেখব, পরিবর্তনগুলো লাইভ সাইটে আসে কিনা।</p>
+// Tailwind CSS is assumed to be available
+
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "AIzaSyC50tfEA2h__peWlFCf4Dly5m_eEJ8br-s",
+  authDomain: "bangla-story-9061a.firebaseapp.com",
+  databaseURL: "https://bangla-story-9061a-default-rtdb.firebaseio.com",
+  projectId: "bangla-story-9061a",
+  storageBucket: "bangla-story-9061a.firebasestorage.app",
+  messagingSenderId: "135733018669",
+  appId: "1:135733018669:web:66e5c0903e612bf40538a4",
+  measurementId: "G-X2W6RPC4PT"
+};
+
+// Canvas environment's unique app ID
+// Note: This app_id is not used in Firestore paths for this specific structure
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+// Main App component
+const App = () => {
+  const [db, setDb] = useState(null);
+  const [auth, setAuth] = useState(null);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [activePanel, setActivePanel] = useState('dataManagement');
+  
+  const [categories, setCategories] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [mainscreenimageUrl, setMainscreenimageUrl] = useState('');
+  const [subcollectionData, setSubcollectionData] = useState([]);
+  const [toastMessage, setToastMessage] = useState(null);
+
+  // Initialize Firebase and set up auth listener
+  useEffect(() => {
+    const initializeFirebase = async () => {
+      try {
+        const app = initializeApp(firebaseConfig);
+        const authInstance = getAuth(app);
+        const dbInstance = getFirestore(app);
+        const analytics = getAnalytics(app); 
+        setDb(dbInstance);
+        setAuth(authInstance);
+
+        const unsubscribe = onAuthStateChanged(authInstance, (currentUser) => {
+          if (currentUser) {
+            setUser(currentUser);
+            console.log("ব্যবহারকারী হিসাবে লগইন করেছেন:", currentUser.email);
+          } else {
+            setUser(null);
+            console.log("কোনো ব্যবহারকারী লগইন করেননি।");
+          }
+          setLoading(false);
+        });
+
+        return () => unsubscribe();
+      } catch (e) {
+          setError("Firebase ইনিশিয়ালাইজেশন ব্যর্থ হয়েছে: " + e.message);
+          console.error("Firebase ইনিশিয়ালাইজেশন ব্যর্থ হয়েছে:", e);
+          setLoading(false);
+        }
+    };
+    initializeFirebase();
+  }, []);
+
+  // Effect for the toast message
+  useEffect(() => {
+    if (toastMessage) {
+      const timer = setTimeout(() => {
+        setToastMessage(null);
+      }, 3000); // Hide toast after 3 seconds
+      return () => clearTimeout(timer);
+    }
+  }, [toastMessage]);
+
+  // Fetch categories and main screen image
+  useEffect(() => {
+    if (!db || !user) {
+      setCategories([]);
+      setMainscreenimageUrl('');
+      return;
+    }
     
-    <img src="https://via.placeholder.com/600x400.png?text=Welcome+to+My+Website" alt="স্বাগতম">
+    // Updated path based on the user's provided structure.
+    const categoriesCollectionRef = collection(db, 'category');
 
-</body>
-</html>
+    const unsubscribeCategories = onSnapshot(categoriesCollectionRef, (snapshot) => {
+      const categoryList = [];
+      let mainScreenImg = '';
+      snapshot.forEach(doc => {
+        // Updated to use 'main_screen_background' as the document ID
+        if (doc.id === 'main_screen_background') {
+          mainScreenImg = doc.data()?.imageUrl || '';
+        } else {
+          categoryList.push({ id: doc.id, ...doc.data() });
+        }
+      });
+      setCategories(categoryList);
+      setMainscreenimageUrl(mainScreenImg);
+    }, (err) => {
+      console.error("ক্যাটাগরি লোড করতে ব্যর্থ:", err);
+      setError("ক্যাটাগরি লোড করতে ব্যর্থ: " + err.message);
+    });
+
+    return () => {
+      unsubscribeCategories();
+    };
+  }, [db, user]);
+
+  // Fetch subcollection data when a category is selected
+  useEffect(() => {
+    if (!db || !selectedCategory) {
+      setSubcollectionData([]);
+      return;
+    }
+    
+    // Updated path based on the user's provided structure.
+    const subcollectionPath = `/category/${selectedCategory.id}/all`;
+    const subcollectionRef = collection(db, subcollectionPath);
+
+    const unsubscribeSubcollection = onSnapshot(subcollectionRef, (snapshot) => {
+      const dataList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setSubcollectionData(dataList);
+    }, (err) => {
+      console.error("ডেটা লোড করতে ব্যর্থ:", err);
+      setError("ডেটা লোড করতে ব্যর্থ: " + err.message);
+    });
+
+    return () => {
+      unsubscribeSubcollection();
+    };
+  }, [db, selectedCategory]);
+
+  // Handle user logout
+  const handleLogout = async () => {
+    if (auth) {
+      try {
+        await signOut(auth);
+        setSelectedCategory(null);
+        console.log("সফলভাবে লগআউট করা হয়েছে।");
+      } catch (e) {
+        console.error("লগআউট ব্যর্থ হয়েছে:", e);
+        setError("লগআউট করতে ব্যর্থ: " + e.message);
+      }
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-100 text-gray-700">
+        <div className="text-center">
+          <p className="text-lg">অথেন্টিকেশন স্টেট চেক করা হচ্ছে...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 bg-red-100 text-red-800 rounded-lg">
+        <p className="font-bold">ত্রুটি:</p>
+        <p>{error}</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage auth={auth} setUser={setUser} />;
+  }
+
+  return (
+    <div
+      className="min-h-screen font-sans text-gray-800 p-4 sm:p-6 lg:p-8 bg-gray-100 transition-all duration-500"
+      style={{
+        backgroundImage: mainscreenimageUrl ? `url('${mainscreenimageUrl}')` : 'none',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }}
+    >
+      <div className="max-w-7xl mx-auto space-y-8 backdrop-blur-sm bg-white/70 p-6 rounded-2xl shadow-xl">
+        <div className="flex justify-between items-center pb-4 border-b border-gray-300">
+          <h1 className="text-3xl font-bold text-gray-900 drop-shadow-md">অ্যাডমিন প্যানেল</h1>
+          <div className="flex items-center space-x-4">
+            <span className="text-sm text-gray-700 hidden sm:block">হিসাবে লগইন করেছেন: <span className="font-semibold">{user.email}</span></span>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 bg-red-500 text-white font-bold rounded-lg shadow-md hover:bg-red-600 transition duration-200 flex items-center gap-2"
+            >
+              <LogOut size={18} /> <span className="hidden sm:inline">লগআউট</span>
+            </button>
+          </div>
+        </div>
+        
+        <div className="flex justify-center gap-4 mb-8">
+          <button
+            onClick={() => setActivePanel('dataManagement')}
+            className={`px-6 py-3 rounded-lg font-bold transition-colors duration-200 ${
+              activePanel === 'dataManagement'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            ডেটা ম্যানেজমেন্ট
+          </button>
+          <button
+            onClick={() => setActivePanel('categoryManagement')}
+            className={`px-6 py-3 rounded-lg font-bold transition-colors duration-200 ${
+              activePanel === 'categoryManagement'
+                ? 'bg-blue-600 text-white shadow-lg'
+                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+            }`}
+          >
+            ক্যাটাগরি ম্যানেজমেন্ট
+          </button>
+        </div>
+
+        <div className="flex flex-col lg:flex-row gap-8">
+          {activePanel === 'dataManagement' ? (
+            <DataManagementPanel 
+              db={db} 
+              categories={categories} 
+              selectedCategory={selectedCategory} 
+              setSelectedCategory={setSelectedCategory} 
+              subcollectionData={subcollectionData}
+              setToastMessage={setToastMessage}
+            />
+          ) : (
+            <CategoryManagementPanel 
+              db={db} 
+              categories={categories}
+              selectedCategory={selectedCategory} 
+              setSelectedCategory={setSelectedCategory}
+              mainscreenimageUrl={mainscreenimageUrl}
+              setMainscreenimageUrl={setMainscreenimageUrl}
+              setToastMessage={setToastMessage}
+            />
+          )}
+        </div>
+      </div>
+      {toastMessage && <Toast message={toastMessage} />}
+    </div>
+  );
+};
+
+const Toast = ({ message }) => {
+  return (
+    <div className="fixed bottom-5 right-5 z-50 p-4 bg-green-500 text-white rounded-lg shadow-xl flex items-center gap-2 animate-slide-in">
+      <Bell size={20} />
+      <span>{message}</span>
+    </div>
+  );
+};
+
+const LoginPage = ({ auth }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loginError, setLoginError] = useState(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setIsLoggingIn(true);
+    setLoginError(null);
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      console.log("সফলভাবে লগইন করা হয়েছে।");
+    } catch (e) {
+      console.error("লগইন ব্যর্থ হয়েছে:", e);
+      setLoginError("লগইন ব্যর্থ হয়েছে। দয়া করে আপনার ইমেল এবং পাসওয়ার্ড চেক করুন।");
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center bg-gray-100 font-sans p-4"
+      style={{
+        backgroundImage: `url('https://placehold.co/1920x1080/4F46E5/ffffff?text=Admin+Login')`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      }}
+    >
+      <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md backdrop-blur-sm bg-white/80 border border-gray-200">
+        <h2 className="text-3xl font-bold text-center text-gray-900 mb-6">অ্যাডমিন লগইন</h2>
+        {loginError && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-md mb-4">
+            <p>{loginError}</p>
+          </div>
+        )}
+        <form onSubmit={handleLogin} className="space-y-6">
+          <div>
+            <label className="block text-gray-700 font-semibold mb-2">ইমেল</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm p-3 focus:ring focus:ring-blue-200"
+              placeholder="আপনার ইমেল লিখুন"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-gray-700 font-semibold mb-2">পাসওয়ার্ড</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm p-3 focus:ring focus:ring-blue-200"
+              placeholder="আপনার পাসওয়ার্ড লিখুন"
+              required
+            />
+          </div>
+          <button
+            type="submit"
+            className="w-full px-4 py-3 bg-blue-600 text-white font-bold rounded-lg shadow-md hover:bg-blue-700 transition duration-200 flex items-center justify-center gap-2"
+            disabled={isLoggingIn}
+          >
+            {isLoggingIn ? 'লগইন হচ্ছে...' : <><LogIn size={20} /> লগইন</>}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const DataManagementPanel = ({ db, categories, selectedCategory, setSelectedCategory, subcollectionData, setToastMessage }) => {
+  const [newSubcollectionItem, setNewSubcollectionItem] = useState('');
+  const [editMode, setEditMode] = useState(null);
+  const [contentError, setContentError] = useState(null);
+
+  const handleAddSubcollectionItem = async () => {
+    if (!db || !selectedCategory || !newSubcollectionItem) {
+      setContentError("নতুন ডেটা এবং একটি ক্যাটাগরি নির্বাচন করা আবশ্যক।");
+      return;
+    }
+    setContentError(null);
+    try {
+      // Updated subcollection path
+      const collectionRef = collection(db, `category/${selectedCategory.id}/all`);
+      await addDoc(collectionRef, { data: newSubcollectionItem, status: 'incomplete' }); // Added 'status' field with a default value
+      setNewSubcollectionItem('');
+      console.log("New item added to subcollection.");
+      setToastMessage('নতুন ডেটা সফলভাবে যোগ করা হয়েছে!');
+    } catch (e) {
+      console.error("Error adding new item:", e);
+      setContentError("নতুন আইটেম যোগ করতে ব্যর্থ: " + e.message);
+    }
+  };
+
+  const handleUpdateSubcollectionItem = async (docId, newData) => {
+    if (!db || !selectedCategory) return;
+    setContentError(null);
+    try {
+      // Updated subcollection path
+      const docRef = doc(db, `category/${selectedCategory.id}/all`, docId);
+      await updateDoc(docRef, { data: newData });
+      setEditMode(null);
+      console.log("Item updated successfully.");
+      setToastMessage('ডেটা সফলভাবে আপডেট করা হয়েছে!');
+    } catch (e) {
+      console.error("Error updating item:", e);
+      setContentError("আইটেম আপডেট করতে ব্যর্থ: " + e.message);
+    }
+  };
+
+  const handleDeleteSubcollectionItem = async (docId) => {
+    if (!db || !selectedCategory) return;
+    setContentError(null);
+    try {
+      // Updated subcollection path
+      const docRef = doc(db, `category/${selectedCategory.id}/all`, docId);
+      await deleteDoc(docRef);
+      console.log("Item deleted successfully.");
+      setToastMessage('ডেটা সফলভাবে মুছে ফেলা হয়েছে!');
+    } catch (e) {
+      console.error("Error deleting item:", e);
+      setContentError("আইটেম মুছে ফেলতে ব্যর্থ: " + e.message);
+    }
+  };
+
+  // New function to toggle the status of an item
+  const handleToggleStatus = async (docId, currentStatus) => {
+    if (!db || !selectedCategory) return;
+    const newStatus = currentStatus === 'completed' ? 'incomplete' : 'completed';
+    try {
+      const docRef = doc(db, `category/${selectedCategory.id}/all`, docId);
+      await updateDoc(docRef, { status: newStatus });
+      console.log("Item status updated successfully.");
+      setToastMessage('অবস্থা সফলভাবে আপডেট করা হয়েছে!');
+    } catch (e) {
+      console.error("Error updating status:", e);
+      setContentError("অবস্থা আপডেট করতে ব্যর্থ: " + e.message);
+    }
+  };
+
+  return (
+    <div className="lg:w-1/2 p-6 bg-white rounded-xl shadow-lg border border-gray-200">
+      <h2 className="text-xl font-bold text-gray-900 mb-4">ডেটা ম্যানেজমেন্ট</h2>
+      
+      <div className="mb-4">
+        <label className="block text-gray-700 font-semibold mb-1">ক্যাটাগরি নির্বাচন করুন</label>
+        <select
+          value={selectedCategory ? selectedCategory.id : ''}
+          onChange={(e) => setSelectedCategory(categories.find(cat => cat.id === e.target.value))}
+          className="w-full rounded-md border-gray-300 shadow-sm p-2"
+        >
+          <option value="">-- একটি ক্যাটাগরি নির্বাচন করুন --</option>
+          {categories.map(cat => (
+            <option key={cat.id} value={cat.id}>
+              {cat.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selectedCategory && (
+        <>
+          <h3 className="text-lg font-semibold text-gray-900 mb-2">"{selectedCategory.name}" এর ডেটা</h3>
+          {contentError && (
+            <div className="p-2 bg-red-100 text-red-700 rounded-md mb-4">
+              <p>{contentError}</p>
+            </div>
+          )}
+
+          <div className="mb-4 p-4 border border-dashed border-gray-300 rounded-lg">
+            <h4 className="font-semibold text-base mb-2">নতুন ডেটা যোগ করুন</h4>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <textarea
+                value={newSubcollectionItem}
+                onChange={(e) => setNewSubcollectionItem(e.target.value)}
+                className="flex-grow rounded-md border-gray-300 shadow-sm p-2 min-h-[50px]"
+                placeholder="নতুন ডেটা লিখুন..."
+              />
+              <button
+                onClick={handleAddSubcollectionItem}
+                className="px-4 py-2 bg-blue-500 text-white font-bold rounded-lg shadow-md hover:bg-blue-600 transition duration-200 sm:w-auto w-full flex items-center justify-center gap-2"
+              >
+                <Plus size={18} /> যোগ করুন
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {subcollectionData.map((item) => (
+              <div
+                key={item.id}
+                className={`p-3 rounded-lg shadow-sm border border-gray-200 transition-colors duration-200 ${item.status === 'completed' ? 'bg-green-100' : 'bg-gray-50'}`}
+              >
+                {editMode?.docId === item.id ? (
+                  <div className="space-y-2">
+                    <textarea
+                      value={editMode.data}
+                      onChange={(e) => setEditMode({ ...editMode, data: e.target.value })}
+                      className="w-full rounded-md border-gray-300 shadow-sm p-2 min-h-[80px]"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleUpdateSubcollectionItem(item.id, editMode.data)}
+                        className="px-3 py-1 text-sm bg-green-500 text-white rounded-lg shadow-md hover:bg-green-600 transition duration-200"
+                      >
+                        সংরক্ষণ করুন
+                      </button>
+                      <button
+                        onClick={() => setEditMode(null)}
+                        className="px-3 py-1 text-sm bg-gray-500 text-white rounded-lg shadow-md hover:bg-gray-600 transition duration-200"
+                      >
+                        বাতিল
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <div className="flex-grow flex items-center gap-3">
+                      <button 
+                        onClick={() => handleToggleStatus(item.id, item.status)}
+                        className={`text-sm rounded-full p-1 transition-all duration-200 ${item.status === 'completed' ? 'text-green-600 hover:text-green-700' : 'text-gray-400 hover:text-gray-600'}`}
+                        title={item.status === 'completed' ? 'সম্পূর্ণ' : 'অসম্পূর্ণ'}
+                      >
+                        {item.status === 'completed' ? <CheckCircle size={24} /> : <Circle size={24} />}
+                      </button>
+                      <p className={`flex-grow whitespace-pre-wrap text-gray-700 ${item.status === 'completed' ? 'line-through text-gray-500' : ''}`}>{item.data}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setEditMode({ docId: item.id, data: item.data })}
+                        className="px-3 py-1 text-sm bg-yellow-500 text-white rounded-lg shadow-md hover:bg-yellow-600 transition duration-200 flex items-center"
+                      >
+                        <Pencil size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteSubcollectionItem(item.id)}
+                        className="px-3 py-1 text-sm bg-red-500 text-white rounded-lg shadow-md hover:bg-red-600 transition duration-200 flex items-center"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+const CategoryManagementPanel = ({ db, categories, selectedCategory, setSelectedCategory, mainscreenimageUrl, setMainscreenimageUrl, setToastMessage }) => {
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryImageUrl, setNewCategoryImageUrl] = useState('');
+  const [newCategoryId, setNewCategoryId] = useState('');
+  const [addError, setAddError] = useState(null);
+  
+  const [editCategoryName, setEditCategoryName] = useState(selectedCategory?.name || '');
+  const [editCategoryImageUrl, setEditCategoryImageUrl] = useState(selectedCategory?.backgroundImageUrl || '');
+  const [editError, setEditError] = useState(null);
+  const [updateMainImageError, setUpdateMainImageError] = useState(null);
+
+  useEffect(() => {
+    if (selectedCategory) {
+      setEditCategoryName(selectedCategory.name);
+      setEditCategoryImageUrl(selectedCategory.backgroundImageUrl);
+    } else {
+      setEditCategoryName('');
+      setEditCategoryImageUrl('');
+    }
+  }, [selectedCategory]);
+
+  const handleAddCategory = async () => {
+    if (!db || !newCategoryName) {
+      setAddError("ক্যাটাগরির নাম খালি রাখা যাবে না।");
+      return;
+    }
+    setAddError(null);
+    try {
+      // Updated category path
+      const collectionRef = collection(db, `category`);
+      if (newCategoryId) {
+        const docRef = doc(collectionRef, newCategoryId);
+        await setDoc(docRef, { name: newCategoryName, backgroundImageUrl: newCategoryImageUrl });
+      } else {
+        await addDoc(collectionRef, { name: newCategoryName, backgroundImageUrl: newCategoryImageUrl });
+      }
+      setNewCategoryName('');
+      setNewCategoryImageUrl('');
+      setNewCategoryId('');
+      console.log("New category added successfully.");
+      setToastMessage('নতুন ক্যাটাগরি সফলভাবে যোগ করা হয়েছে!');
+    } catch (e) {
+      console.error("Error adding new category:", e);
+      setAddError("নতুন ক্যাটাগরি যোগ করতে ব্যর্থ: " + e.message);
+    }
+  };
+
+  const handleUpdateCategory = async () => {
+    if (!db || !selectedCategory) {
+      setEditError("একটি ক্যাটাগরি নির্বাচন করা আবশ্যক।");
+      return;
+    }
+    setEditError(null);
+    try {
+      // Updated category path
+      const docRef = doc(db, `category`, selectedCategory.id);
+      await updateDoc(docRef, {
+        name: editCategoryName,
+        backgroundImageUrl: editCategoryImageUrl
+      });
+      console.log("Category updated successfully.");
+      setToastMessage('ক্যাটাগরি সফলভাবে আপডেট করা হয়েছে!');
+    } catch (e) {
+      console.error("Error updating category:", e);
+      setEditError("ক্যাটাগরি আপডেট করতে ব্যর্থ: " + e.message);
+    }
+  };
+
+  const handleDeleteCategory = async () => {
+    if (!db || !selectedCategory) {
+      setEditError("একটি ক্যাটাগরি নির্বাচন করা আবশ্যক।");
+      return;
+    }
+    setEditError(null);
+    try {
+      // Updated category path
+      const docRef = doc(db, `category`, selectedCategory.id);
+      await deleteDoc(docRef);
+      console.log("Category deleted successfully.");
+      setSelectedCategory(null);
+      setToastMessage('ক্যাটাগরি সফলভাবে মুছে ফেলা হয়েছে!');
+    } catch (e) {
+      console.error("Error deleting category:", e);
+      setEditError("ক্যাটাগরি মুছে ফেলতে ব্যর্থ: " + e.message);
+    }
+  };
+  
+  const updateMainscreenImage = async () => {
+    if (!db) return;
+    setUpdateMainImageError(null);
+    try {
+      // Updated path for main screen image
+      const docRef = doc(db, `category`, 'main_screen_background');
+      // Changed to lowercase 'imageUrl' to match user's request
+      await setDoc(docRef, { imageUrl: mainscreenimageUrl });
+      console.log("Main screen image updated successfully.");
+      setToastMessage('মেইন স্ক্রিন ব্যাকগ্রাউন্ড সফলভাবে আপডেট করা হয়েছে!');
+    } catch (e) {
+      console.error("Error updating main screen image:", e);
+      setUpdateMainImageError("মেইন স্ক্রিন ইমেজ আপডেট করতে ব্যর্থ: " + e.message);
+    }
+  };
+
+  return (
+    <div className="lg:w-1/2 space-y-8">
+      <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+        <h3 className="text-xl font-bold text-gray-900 mb-4">নতুন ক্যাটাগরি যোগ করুন</h3>
+        {addError && (
+          <div className="p-2 bg-red-100 text-red-700 rounded-md mb-4">
+            <p>{addError}</p>
+          </div>
+        )}
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={newCategoryId}
+            onChange={(e) => setNewCategoryId(e.target.value)}
+            placeholder="ক্যাটাগরি আইডি (ঐচ্ছিক)"
+            className="w-full rounded-md border-gray-300 shadow-sm p-2"
+          />
+          <input
+            type="text"
+            value={newCategoryName}
+            onChange={(e) => setNewCategoryName(e.target.value)}
+            placeholder="ক্যাটাগরির নাম"
+            className="w-full rounded-md border-gray-300 shadow-sm p-2"
+          />
+          <input
+            type="text"
+            value={newCategoryImageUrl}
+            onChange={(e) => setNewCategoryImageUrl(e.target.value)}
+            placeholder="ব্যাকগ্রাউন্ড ইমেজ URL"
+            className="w-full rounded-md border-gray-300 shadow-sm p-2"
+          />
+          <button
+            onClick={handleAddCategory}
+            className="w-full px-4 py-2 bg-purple-500 text-white font-bold rounded-lg shadow-md hover:bg-purple-600 transition duration-200 flex items-center justify-center gap-2"
+          >
+            <Plus size={20} className="inline-block mr-2" /> যোগ করুন
+          </button>
+        </div>
+      </div>
+      
+      <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+        <h3 className="text-xl font-bold text-gray-900 mb-4">ক্যাটাগরি সম্পাদনা ও মুছুন</h3>
+        <div className="mb-4">
+          <label className="block text-gray-700 font-semibold mb-1">ক্যাটাগরি নির্বাচন করুন</label>
+          <select
+            value={selectedCategory ? selectedCategory.id : ''}
+            onChange={(e) => setSelectedCategory(categories.find(cat => cat.id === e.target.value))}
+            className="w-full rounded-md border-gray-300 shadow-sm p-2"
+          >
+            <option value="">-- একটি ক্যাটাগরি নির্বাচন করুন --</option>
+            {categories.map(cat => (
+              <option key={cat.id} value={cat.id}>
+                {cat.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {editError && (
+          <div className="p-2 bg-red-100 text-red-700 rounded-md mb-4">
+            <p>{editError}</p>
+          </div>
+        )}
+        {selectedCategory && (
+            <div className="space-y-4">
+              <label className="block">
+                <span className="text-gray-700">নাম:</span>
+                <input
+                  type="text"
+                  value={editCategoryName}
+                  onChange={(e) => setEditCategoryName(e.target.value)}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2"
+                />
+              </label>
+              <label className="block">
+                <span className="text-gray-700">ব্যাকগ্রাউন্ড ইমেজ URL:</span>
+                <input
+                  type="text"
+                  value={editCategoryImageUrl}
+                  onChange={(e) => setEditCategoryImageUrl(e.target.value)}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2"
+                />
+              </label>
+              <div className="flex gap-2">
+                  <button
+                    onClick={handleUpdateCategory}
+                    className="w-full px-4 py-2 bg-green-500 text-white font-bold rounded-lg shadow-md hover:bg-green-600 transition duration-200 flex items-center justify-center gap-2"
+                  >
+                    <Pencil size={18} /> আপডেট করুন
+                  </button>
+                  <button
+                    onClick={() => handleDeleteCategory()}
+                    className="w-full px-4 py-2 bg-red-500 text-white font-bold rounded-lg shadow-md hover:bg-red-600 transition duration-200 flex items-center justify-center gap-2"
+                  >
+                    <Trash2 size={18} /> মুছে ফেলুন
+                  </button>
+              </div>
+            </div>
+        )}
+      </div>
+
+      <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
+        <h2 className="text-xl font-bold text-gray-900 mb-4">মেইন স্ক্রিন ইমেজ আপডেট</h2>
+        {updateMainImageError && (
+          <div className="p-2 bg-red-100 text-red-700 rounded-md mb-4">
+            <p>{updateMainImageError}</p>
+          </div>
+        )}
+        <div className="flex flex-col sm:flex-row gap-4">
+          <input
+            type="text"
+            value={mainscreenimageUrl}
+            onChange={(e) => setMainscreenimageUrl(e.target.value)}
+            placeholder="ইমেজ URL"
+            className="flex-grow rounded-md border-gray-300 shadow-sm p-2"
+          />
+          <button
+            onClick={updateMainscreenImage}
+            className="px-4 py-2 bg-green-500 text-white font-bold rounded-lg shadow-md hover:bg-green-600 transition duration-200"
+          >
+            আপডেট করুন
+          </button>
+        </div>
+        {mainscreenimageUrl && (
+          <div className="mt-4">
+            <p className="font-semibold mb-2">বর্তমান ইমেজ:</p>
+            <img
+              src={mainscreenimageUrl}
+              alt="Main screen"
+              className="w-full h-48 object-cover rounded-lg"
+              onError={(e) => { e.target.src = 'https://placehold.co/600x400/CCCCCC/333333?text=Image+Not+Found'; }}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default App;
